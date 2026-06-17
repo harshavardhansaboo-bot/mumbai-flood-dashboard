@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Mumbai Flood Dashboard</title>
+  <meta charset="utf-8" />
+  <style>
+    body { margin: 0; }
+    #map { height: 100vh; width: 100%; padding-top: 50px; box-sizing: border-box; }
+    #header {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      background: #1a1a2e;
+      color: white;
+      padding: 12px 20px;
+      font-family: Arial, sans-serif;
+      font-size: 20px;
+      font-weight: bold;
+      z-index: 1000;
+      box-sizing: border-box;
+    }
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</head>
+<body>
+  <div id="header">
+    🌧️ Mumbai Flood Risk Dashboard — Live Ward Monitor
+  </div>
+  <div id="map"></div>
+
+  <script>
+    const map = L.map('map').setView([19.0760, 72.8777], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    function getColor(risk) {
+      if (risk === "high") return "#ff4444";
+      if (risk === "medium") return "#ffaa00";
+      return "#44cc44";
+    }
+
+   fetch('/risk')
+      .then(res => res.json())
+      .then(riskData => {
+       fetch('/BMC_admin_wards.geojson')
+          .then(res => res.json())
+          .then(geoData => {
+            L.geoJSON(geoData, {
+              style: function(feature) {
+                const ward = feature.properties.name || "";
+                const risk = riskData[ward]?.risk || "low";
+                return {
+                  fillColor: getColor(risk),
+                  fillOpacity: 0.6,
+                  color: "white",
+                  weight: 2
+                };
+              },
+              onEachFeature: function(feature, layer) {
+                const ward = feature.properties.name || "Unknown";
+                const info = riskData[ward];
+                layer.bindPopup(
+                  "Ward: " + ward + "<br>" +
+                  "Risk: " + (info?.risk || "unknown") + "<br>" +
+                  "Rainfall: " + (info?.rainfall_mm || "?") + "mm"
+                );
+              }
+            }).addTo(map);
+          });
+      });
+
+    const legend = L.control({ position: "bottomright" });
+    legend.onAdd = function() {
+      const div = L.DomUtil.create("div");
+      div.style.background = "white";
+      div.style.padding = "10px";
+      div.style.borderRadius = "8px";
+      div.style.fontSize = "14px";
+      div.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
+      div.innerHTML = `
+        <b>Flood Risk</b><br><br>
+        <span style="color:#ff4444">●</span> High Risk<br>
+        <span style="color:#ffaa00">●</span> Medium Risk<br>
+        <span style="color:#44cc44">●</span> Low Risk
+      `;
+      return div;
+    };
+    legend.addTo(map);
+    // Auto refresh every 30 minutes
+setInterval(() => {
+  location.reload();
+}, 30 * 60 * 1000);
+
+// Show last updated time
+const lastUpdated = L.control({ position: "topleft" });
+lastUpdated.onAdd = function() {
+  const div = L.DomUtil.create("div");
+  div.style.background = "white";
+  div.style.padding = "6px 10px";
+  div.style.borderRadius = "6px";
+  div.style.fontSize = "12px";
+  div.style.marginTop = "40px";
+  div.style.boxShadow = "0 2px 6px rgba(0,0,0,0.2)";
+  div.innerHTML = "🕐 Last updated: " + new Date().toLocaleTimeString();
+  return div;
+};
+lastUpdated.addTo(map);
+  </script>
+</body>
+</html>
