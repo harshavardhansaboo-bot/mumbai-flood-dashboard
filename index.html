@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Mumbai Flood Risk Dashboard</title>
+  <meta charset="utf-8" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; }
+
+    #header {
+      background: #1a1a2e;
+      color: white;
+      padding: 12px 20px;
+      font-size: 20px;
+      font-weight: bold;
+      position: absolute;
+      top: 0; left: 0; width: 100%;
+      z-index: 1000;
+    }
+
+    #summary-bar {
+      position: absolute;
+      top: 50px; left: 0; width: 100%;
+      background: #16213e;
+      color: white;
+      display: flex;
+      justify-content: center;
+      gap: 40px;
+      padding: 8px 20px;
+      font-size: 14px;
+      z-index: 1000;
+    }
+
+    .summary-item { display: flex; align-items: center; gap: 8px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot-high { background: #ff4444; }
+    .dot-medium { background: #ffaa00; }
+    .dot-low { background: #44cc44; }
+
+    #map {
+      height: 100vh;
+      width: 100%;
+      padding-top: 90px;
+    }
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</head>
+<body>
+  <div id="header">🌧️ Mumbai Flood Risk Dashboard — Live Ward Monitor</div>
+
+  <div id="summary-bar">
+    <div class="summary-item">
+      <div class="dot dot-high"></div>
+      <span id="high-count">0 wards High Risk</span>
+    </div>
+    <div class="summary-item">
+      <div class="dot dot-medium"></div>
+      <span id="medium-count">0 wards Medium Risk</span>
+    </div>
+    <div class="summary-item">
+      <div class="dot dot-low"></div>
+      <span id="low-count">0 wards Low Risk</span>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <script>
+    const map = L.map('map').setView([19.0760, 72.8777], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    // Full ward names
+    const wardNames = {
+      "A": "Colaba, Fort, Nariman Point",
+      "B": "Mandvi, Masjid",
+      "C": "Girgaon, Marine Lines",
+      "D": "Malabar Hill, Walkeshwar",
+      "E": "Byculla, Mazagaon",
+      "F/S": "Dadar, Prabhadevi",
+      "F/N": "Andheri West (South)",
+      "G/S": "Dharavi, Mahim",
+      "G/N": "Vile Parle, Santacruz West",
+      "H/E": "Bandra East, Kurla West",
+      "H/W": "Bandra West",
+      "K/E": "Andheri East, Jogeshwari East",
+      "K/W": "Andheri West, Jogeshwari West",
+      "L": "Kurla, Vidyavihar",
+      "M/E": "Chembur East",
+      "M/W": "Chembur West, Govandi",
+      "N": "Ghatkopar, Vikhroli",
+      "P/N": "Goregaon, Malad East",
+      "P/S": "Goregaon West, Malad West",
+      "R/C": "Dahisar, Borivali East",
+      "R/N": "Dahisar North",
+      "R/S": "Borivali West",
+      "S": "Bhandup, Mulund",
+      "T": "Mulund East"
+    };
+
+    const adviceMap = {
+      "high": "⚠️ Avoid low-lying areas. Do not enter flooded roads.",
+      "medium": "🟡 Stay alert. Monitor updates closely.",
+      "low": "✅ No immediate risk. Stay informed."
+    };
+
+    function getColor(risk) {
+      if (risk === "high") return "#ff4444";
+      if (risk === "medium") return "#ffaa00";
+      return "#44cc44";
+    }
+
+    fetch('/risk')
+      .then(res => res.json())
+      .then(riskData => {
+
+        // Count wards per risk level
+        let high = 0, medium = 0, low = 0;
+        for (const ward in riskData) {
+          const r = riskData[ward].risk;
+          if (r === "high") high++;
+          else if (r === "medium") medium++;
+          else low++;
+        }
+        document.getElementById("high-count").textContent = high + " wards High Risk";
+        document.getElementById("medium-count").textContent = medium + " wards Medium Risk";
+        document.getElementById("low-count").textContent = low + " wards Low Risk";
+
+        fetch('/BMC_admin_wards.geojson')
+          .then(res => res.json())
+          .then(geoData => {
+            L.geoJSON(geoData, {
+              style: function(feature) {
+                const ward = feature.properties.name || "";
+                const risk = riskData[ward]?.risk || "low";
+                return {
+                  fillColor: getColor(risk),
+                  fillOpacity: 0.6,
+                  color: "white",
+                  weight: 2
+                };
+              },
+              onEachFeature: function(feature, layer) {
+                const ward = feature.properties.name || "Unknown";
+                const info = riskData[ward];
+                const risk = info?.risk || "low";
+                const mm = info?.rainfall_mm ?? 0;
+                const fullName = wardNames[ward] || "";
+                const advice = adviceMap[risk];
+
+                layer.bindPopup(`
+                  <b>Ward ${ward}</b><br>
+                  <span style="color:#888">${fullName}</span><br><br>
+                  <b>Risk:</b> <span style="color:${getColor(risk)}">${risk.toUpperCase()}</span><br>
+                  <b>Rainfall:</b> ${mm}mm (last 1 hour)<br><br>
+                  ${advice}
+                `);
+              }
+            }).addTo(map);
+          });
+      });
+
+    // Legend
+    const legend = L.control({ position: "bottomright" });
+    legend.onAdd = function() {
+      const div = L.DomUtil.create("div");
+      div.style.background = "white";
+      div.style.padding = "10px";
+      div.style.borderRadius = "8px";
+      div.style.fontSize = "14px";
+      div.style.boxShadow = "0 2px 6px rgba(0,0,0,0.3)";
+      div.innerHTML = `
+        <b>Flood Risk</b><br><br>
+        <span style="color:#ff4444">●</span> High Risk<br>
+        <span style="color:#ffaa00">●</span> Medium Risk<br>
+        <span style="color:#44cc44">●</span> Low Risk
+      `;
+      return div;
+    };
+    legend.addTo(map);
+
+    // Last updated
+    const lastUpdated = L.control({ position: "topleft" });
+    lastUpdated.onAdd = function() {
+      const div = L.DomUtil.create("div");
+      div.style.background = "white";
+      div.style.padding = "6px 10px";
+      div.style.borderRadius = "6px";
+      div.style.fontSize = "12px";
+      div.style.marginTop = "50px";
+      div.style.boxShadow = "0 2px 6px rgba(0,0,0,0.2)";
+      div.innerHTML = "🕐 Last updated: " + new Date().toLocaleTimeString();
+      return div;
+    };
+    lastUpdated.addTo(map);
+
+    // Auto refresh every 30 mins
+    setInterval(() => { location.reload(); }, 30 * 60 * 1000);
+  </script>
+</body>
+</html>
